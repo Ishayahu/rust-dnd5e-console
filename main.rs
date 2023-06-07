@@ -1,3 +1,4 @@
+// 2023-06-06
 use std::io::{self, BufRead, BufReader};
 use std::fs::File;
 
@@ -6,18 +7,29 @@ extern crate ncurses;
 use ncurses::*;
 use std::char;
 
+const PLAYER_SYMBOL: char = '*';
+
+struct Position {
+    pub x: usize,
+    pub y: usize,
+}
+
+struct Unit{
+    pub position: Position,
+    pub visibility_range: usize,
+    pub speed: usize,
+}
+
 fn main() {
     let width: usize = 20;
     let height: usize = 20;
-    struct Position {
-        pub x: usize,
-        pub y: usize,
-    }
-    let mut player_position: Position = Position { x: 0, y: 0 };
-    let player_symbol: char = '*';
-    let mut key_pressed: String = String::new();
-    let mut key_pressed_str: char;
 
+    // let mut player.position: Position = Position { x: 0, y: 0 };
+    let mut player: Unit = Unit{
+        position:  Position{ x: 0, y: 0 },
+        visibility_range: 3,
+        speed: 2
+    };
 
     let characters_found: i8 = 0;
     let mut username = String::new();
@@ -67,118 +79,114 @@ fn main() {
 	start_color();
     raw();
 
+    /* Allow for extended keyboard (like F1). */
+    keypad(stdscr(), true);
+    noecho();
+    clear();
 
-    let UNIT_COLOR: i16 = 0;
-    let FOREST_COLOR: i16 = 1;
-    let MOUNT_COLOR: i16 = 2;
-    let SAND_COLOR: i16 = 3;
-    let ROAD_COLOR: i16 = 4;
-    let DEFAULT_COLOR: i16 = 99;
+    loop {
+        make_actual_map(&mut actual_map, &game_map, &player);
+        draw_map(&actual_map, &player);
+        if !process_gamer_input(&game_map, &mut player){
+            return;
+        }
+        refresh();
+    }
+}
+
+fn process_gamer_input(game_map: &Vec<Vec<char>>, player: &mut Unit) -> bool {
+    let key_pressed_str = char::from_u32(getch() as u32).expect("Invalid char");
+    match key_pressed_str {
+        '6' => {
+            if game_map[player.position.y][player.position.x+1]!='@' {
+                player.position.x += 1;
+            }
+        },
+        '4' => {
+            if game_map[player.position.y][player.position.x-1]!='@' {
+                player.position.x -= 1;
+            }
+        },
+        '8' => {
+            if game_map[player.position.y-1][player.position.x]!='@' {
+                player.position.y -= 1;
+            }
+        },
+        '2' => {
+            if game_map[player.position.y+1][player.position.x]!='@' {
+                player.position.y += 1;
+            }
+        },
+        'q' => return false,
+        _ => (),
+    }
+    return true;
+}
+
+fn make_actual_map(actual_map: &mut Vec<Vec<char>>, game_map: &Vec<Vec<char>>, player: &Unit){
+    // Сбрасываем карту
+    for y in 0..game_map.len(){
+        for x in 0..game_map[y].len(){
+            actual_map[y][x] =  game_map[y][x];
+        }
+    }
+    // Рисуем на ней персонажей
+    actual_map[player.position.y][player.position.x] = PLAYER_SYMBOL;
+}
+
+fn draw_map(actual_map: &Vec<Vec<char>>, player: &Unit ){
+    const UNIT_COLOR: i16 = 0;
+    const FOREST_COLOR: i16 = 1;
+    const MOUNT_COLOR: i16 = 2;
+    const SAND_COLOR: i16 = 3;
+    const ROAD_COLOR: i16 = 4;
+    const DEFAULT_COLOR: i16 = 99;
 
     init_pair(FOREST_COLOR, COLOR_BLACK, COLOR_GREEN);
     init_pair(MOUNT_COLOR, COLOR_WHITE, COLOR_BLACK);
     init_pair(SAND_COLOR, COLOR_BLACK, COLOR_YELLOW);
     init_pair(ROAD_COLOR, COLOR_WHITE, COLOR_BLACK);
     init_pair(DEFAULT_COLOR, COLOR_WHITE, COLOR_BLACK);
-	
-	
-    /* Allow for extended keyboard (like F1). */
-    keypad(stdscr(), true);
-    noecho();
 
-    let mut ch;
-
-    loop {
-
-
-        // Сбрасываем карту
-        for y in 0..height{
-            for x in 0..width{
-                actual_map[y][x] =  game_map[y][x];
-            }
-        }
-        // Рисуем на ней персонажей
-        actual_map[player_position.y][player_position.x] = player_symbol;
-        // Очищаем экран
-//        print!("\x1B[2J\x1B[1;1H");
-        clear();
-        // Показываем актуальную карту
-        println!("Map:");
-        for y in 0..height{
-            for x in 0..width{
-                match actual_map[y][x]{
+    for y in 0..actual_map.len(){
+        for x in 0..actual_map[y].len(){
+            if (y as i8) < ((player.position.y as i8) - (player.visibility_range as i8))  ||
+               (y as i8) > ((player.position.y as i8) + (player.visibility_range as i8)) ||
+               (x as i8) < ((player.position.x as i8) - (player.visibility_range as i8))  ||
+               (x as i8) > ((player.position.x as i8) + (player.visibility_range as i8)) {
+                // вне зоны видимости
+                mvaddch(y.try_into().unwrap(), x.try_into().unwrap(), '?' as u32);
+            } else {
+                match actual_map[y][x] {
                     '@' => {
                         attron(COLOR_PAIR(MOUNT_COLOR));
-                        mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), actual_map[y][x] as u32);
-                        // mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), '▀' as u32);
+                        mvaddch(y.try_into().unwrap(), x.try_into().unwrap(), actual_map[y][x] as u32);
+                        // mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), ACS_BLOCK as u32);
                         attroff(COLOR_PAIR(MOUNT_COLOR));
                     },
                     'F' => {
                         attron(COLOR_PAIR(FOREST_COLOR));
                         // mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), '╒' as u32);
-                        mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), actual_map[y][x] as u32);
+                        mvaddch(y.try_into().unwrap(), x.try_into().unwrap(), actual_map[y][x] as u32);
                         attroff(COLOR_PAIR(FOREST_COLOR));
                     },
                     '0' => {
                         attron(COLOR_PAIR(SAND_COLOR));
-                        mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), actual_map[y][x] as u32);
-                        // mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), '░' as u32);
+                        mvaddch(y.try_into().unwrap(), x.try_into().unwrap(), actual_map[y][x] as u32);
+                        // mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), ACS_BOARD as u32);
                         attroff(COLOR_PAIR(SAND_COLOR));
                     },
-                    '*' => {
+                    PLAYER_SYMBOL => {
                         attron(COLOR_PAIR(UNIT_COLOR));
-                        mvaddch(y.try_into().unwrap(),x.try_into().unwrap(), actual_map[y][x] as u32);
+                        mvaddch(y.try_into().unwrap(), x.try_into().unwrap(), actual_map[y][x] as u32);
                         attroff(COLOR_PAIR(UNIT_COLOR));
                     },
                     _ => {
-                        attron(COLOR_PAIR(DEFAULT_COLOR));            
+                        attron(COLOR_PAIR(DEFAULT_COLOR));
                         attroff(COLOR_PAIR(DEFAULT_COLOR));
                     },
                 };
-
-
-
-
-
-            }
-            print!("\n");
+            };
         }
-
-        /*key_pressed.clear();
-        io::stdin().read_line(&mut key_pressed).expect("no input supplied");
-        key_pressed_str = key_pressed.trim_end();
-        println!("pressed key: {}", key_pressed_str);*/
-
-        ch = getch();
-        key_pressed_str = char::from_u32(ch as u32).expect("Invalid char");
-        match key_pressed_str {
-            '6' => {
-                if(game_map[player_position.y][player_position.x+1]!='@'){
-                    player_position.x += 1;
-                }
-                
-            },
-            '4' => {
-                if(game_map[player_position.y][player_position.x-1]!='@'){
-                    player_position.x -= 1;
-                }
-            },
-            '8' => {
-                if(game_map[player_position.y-1][player_position.x]!='@'){
-                    player_position.y -= 1;
-                }
-            },
-            '2' => {
-                if(game_map[player_position.y+1][player_position.x]!='@'){
-                    player_position.y += 1;
-                }
-            },
-            'q' => return,
-            _ => (),
-        }
-        refresh();
     }
-
-
-
 }
